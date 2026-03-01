@@ -1,0 +1,589 @@
+@import "tailwindcss";
+
+/* CSS Variables for appearance settings */
+:root {
+  --accent-color: #6366f1;
+  --font-size-base: 16px;
+  --message-spacing: 8px;
+  --border-radius: 12px;
+  --transition-duration: 200ms;
+  --chat-bg: #1f2937;
+}
+
+/* Apply font size */
+html {
+  font-size: var(--font-size-base);
+}
+
+/* Accent color utilities */
+.accent-bg {
+  background-color: var(--accent-color);
+}
+
+.accent-text {
+  color: var(--accent-color);
+}
+
+.accent-border {
+  border-color: var(--accent-color);
+}
+
+/* Message styling based on appearance */
+.message-container {
+  margin-bottom: var(--message-spacing);
+}
+
+/* Border radius utility */
+.dynamic-rounded {
+  border-radius: var(--border-radius);
+}
+
+/* Transition duration */
+.dynamic-transition {
+  transition-duration: var(--transition-duration);
+}
+
+/* Chat background styles */
+.chat-bg-default {
+  background-color: #1f2937;
+}
+
+.chat-bg-gradient1 {
+  background: linear-gradient(to bottom right, #312e81, #581c87);
+}
+
+.chat-bg-gradient2 {
+  background: linear-gradient(to bottom right, #111827, #312e81);
+}
+
+.chat-bg-gradient3 {
+  background: linear-gradient(to bottom right, #0f172a, #1e293b);
+}
+
+.chat-bg-solid {
+  background-color: #111827;
+}
+
+/* Message styles */
+.message-modern {
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.message-classic {
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.message-minimal {
+  border-radius: 0;
+  padding: 0.5rem 0;
+  background: transparent !important;
+  border-left: 2px solid var(--accent-color);
+  padding-left: 1rem;
+}
+
+.message-bubbles {
+  border-radius: 1.5rem;
+  padding: 0.75rem 1.25rem;
+}
+
+/* Density styles */
+.density-compact .message-container {
+  margin-bottom: 4px;
+}
+
+.density-comfortable .message-container {
+  margin-bottom: 8px;
+}
+
+.density-spacious .message-container {
+  margin-bottom: 16px;
+}
+
+/* No animations mode */
+.no-animations * {
+  animation: none !important;
+  transition: none !important;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Custom scrollbar - Dark mode */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Hide scrollbar on mobile but keep functionality */
+@media (max-width: 768px) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  * {
+    scrollbar-width: none;
+  }
+}
+
+/* Prevent text selection on UI elements */
+button, [role="button"] {
+  user-select: none;
+}
+
+/* Full page background - no white gaps */
+html {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #111827;
+  overflow-x: hidden;
+}
+
+html.light {
+  background-color: #f3f4f6 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   LIGHT MODE STYLES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Base light mode */
+.light,
+.light body,
+.light #root {
+  background-color: #f3f4f6 !important;
+  color: #111827 !important;
+}
+
+/* Background colors */
+.light .bg-gray-900 {
+  background-color: #ffffff !important;
+}
+
+.light .bg-gray-950 {
+  background-color: #f9fafb !important;
+}
+
+.light .bg-gray-800 {
+  background-color: #f3f4f6 !important;
+}
+
+.light .bg-gray-700 {
+  background-color: #e5e7eb !important;
+}
+
+.light .bg-gray-800\/50 {
+  background-color: rgba(243, 244, 246, 0.9) !important;
+}
+
+/* Text colors */
+.light .text-white {
+  color: #111827 !important;
+}
+
+.light .text-gray-100 {
+  color: #1f2937 !important;
+}
+
+.light .text-gray-200 {
+  color: #374151 !important;
+}
+
+.light .text-gray-300 {
+  color: #4b5563 !important;
+}
+
+.light .text-gray-400 {
+  color: #6b7280 !important;
+}
+
+.light .text-gray-500 {
+  color: #9ca3af !important;
+}
+
+/* Borders */
+.light .border-white\/10 {
+  border-color: #e5e7eb !important;
+}
+
+.light .border-white\/5 {
+  border-color: #f3f4f6 !important;
+}
+
+.light .border-gray-700 {
+  border-color: #e5e7eb !important;
+}
+
+.light .border-gray-800 {
+  border-color: #e5e7eb !important;
+}
+
+/* Backgrounds with transparency */
+.light .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.02) !important;
+}
+
+.light .bg-white\/10 {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+.light .bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Hover states */
+.light .hover\:bg-white\/5:hover {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+
+.light .hover\:bg-white\/10:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.light .hover\:bg-gray-700:hover {
+  background-color: #e5e7eb !important;
+}
+
+.light .hover\:bg-gray-800:hover {
+  background-color: #f3f4f6 !important;
+}
+
+/* Chat backgrounds for light mode */
+.light .chat-bg-default {
+  background-color: #f9fafb !important;
+}
+
+.light .chat-bg-gradient1 {
+  background: linear-gradient(to bottom right, #e0e7ff, #f3e8ff) !important;
+}
+
+.light .chat-bg-gradient2 {
+  background: linear-gradient(to bottom right, #f9fafb, #e0e7ff) !important;
+}
+
+.light .chat-bg-gradient3 {
+  background: linear-gradient(to bottom right, #f1f5f9, #e2e8f0) !important;
+}
+
+.light .chat-bg-solid {
+  background-color: #ffffff !important;
+}
+
+/* Message bubbles - received messages */
+.light .bg-gray-700.rounded-2xl,
+.light .bg-gray-800.rounded-2xl {
+  background-color: #e5e7eb !important;
+  color: #111827 !important;
+}
+
+/* Sent message bubble text should stay white */
+.light .bg-indigo-600 .text-white,
+.light .bg-indigo-500 .text-white,
+.light .bg-indigo-600.text-white,
+.light .bg-indigo-500.text-white {
+  color: #ffffff !important;
+}
+
+/* Input fields */
+.light input:not([type="checkbox"]):not([type="radio"]),
+.light textarea,
+.light select {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+}
+
+.light input::placeholder,
+.light textarea::placeholder {
+  color: #9ca3af !important;
+}
+
+.light input:focus,
+.light textarea:focus,
+.light select:focus {
+  border-color: #6366f1 !important;
+  outline-color: #6366f1 !important;
+}
+
+/* Sidebar and panels */
+.light aside,
+.light .sidebar {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+}
+
+/* Modals and overlays */
+.light .fixed.inset-0.bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+.light .modal-content,
+.light .bg-gray-900.rounded-2xl,
+.light .bg-gray-900.rounded-xl {
+  background-color: #ffffff !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Scrollbar for light mode */
+.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Admin panel sidebar - keep gradient */
+.light .from-indigo-900 {
+  background: linear-gradient(to bottom, #4f46e5, #7c3aed) !important;
+}
+
+/* Cards and stat boxes */
+.light .bg-gradient-to-br.from-indigo-500\/10,
+.light .bg-gradient-to-br.from-green-500\/10,
+.light .bg-gradient-to-br.from-red-500\/10,
+.light .bg-gradient-to-br.from-blue-500\/10 {
+  background: #f9fafb !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+/* Active chat item */
+.light .bg-indigo-500\/20 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+/* Dropdown menus */
+.light .bg-gray-800.shadow-xl,
+.light .bg-gray-800.rounded-lg.shadow {
+  background-color: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Table styles */
+.light table {
+  background-color: #ffffff !important;
+}
+
+.light th {
+  background-color: #f9fafb !important;
+  color: #374151 !important;
+  border-color: #e5e7eb !important;
+}
+
+.light td {
+  border-color: #e5e7eb !important;
+}
+
+.light tr:hover {
+  background-color: #f9fafb !important;
+}
+
+/* Badges and pills */
+.light .bg-green-500\/20 {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+.light .bg-red-500\/20 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+.light .bg-yellow-500\/20 {
+  background-color: rgba(234, 179, 8, 0.15) !important;
+}
+
+.light .bg-indigo-500\/10 {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Dividers */
+.light hr,
+.light .border-t {
+  border-color: #e5e7eb !important;
+}
+
+/* User avatars - better contrast */
+.light .bg-indigo-600.rounded-full,
+.light .bg-indigo-500.rounded-full {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+/* File preview cards */
+.light .bg-gray-800.rounded-lg {
+  background-color: #f3f4f6 !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+/* Gradient text - ensure visibility */
+.light .bg-gradient-to-r.from-white {
+  background: linear-gradient(to right, #111827, #4f46e5) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+}
+
+/* Toast notifications */
+.light .bg-green-500,
+.light .bg-red-500,
+.light .bg-blue-500 {
+  color: #ffffff !important;
+}
+
+/* Checkboxes and toggles */
+.light input[type="checkbox"] {
+  accent-color: #6366f1;
+}
+
+/* Selection highlight */
+.light ::selection {
+  background-color: rgba(99, 102, 241, 0.3) !important;
+  color: #111827 !important;
+}
+
+/* Focus rings */
+.light .focus\:ring-indigo-500:focus {
+  --tw-ring-color: rgba(99, 102, 241, 0.5) !important;
+}
+
+/* Link colors */
+.light a.text-indigo-400,
+.light .text-indigo-400 {
+  color: #4f46e5 !important;
+}
+
+.light a.text-indigo-400:hover,
+.light .hover\:text-indigo-300:hover {
+  color: #6366f1 !important;
+}
+
+/* Icon colors in light mode */
+.light .text-indigo-400 {
+  color: #6366f1 !important;
+}
+
+.light .text-green-400 {
+  color: #22c55e !important;
+}
+
+.light .text-red-400 {
+  color: #ef4444 !important;
+}
+
+.light .text-yellow-400 {
+  color: #eab308 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   END LIGHT MODE STYLES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Mobile viewport fix */
+@supports (-webkit-touch-callout: none) {
+  html {
+    height: -webkit-fill-available;
+  }
+}
+
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #111827;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.light body {
+  background-color: #f3f4f6 !important;
+}
+
+@supports (-webkit-touch-callout: none) {
+  body {
+    min-height: -webkit-fill-available;
+  }
+}
+
+#root {
+  min-height: 100%;
+  width: 100%;
+  background-color: #111827;
+}
+
+.light #root {
+  background-color: #f3f4f6 !important;
+}
+
+/* Mobile-specific styles */
+@media (max-width: 768px) {
+  /* Larger touch targets */
+  button, a {
+    min-height: 44px;
+  }
+  
+  /* Fix input zoom on iOS */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+  
+  /* Better mobile scrolling */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+  }
+}
+
+/* Ensure modals and screens are scrollable */
+.overflow-y-auto {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safe area padding for notched devices */
+@supports (padding: max(0px)) {
+  .safe-area-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  .safe-area-top {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+}
