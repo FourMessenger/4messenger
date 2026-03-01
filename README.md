@@ -6,7 +6,6 @@ A secure, self-hosted messenger with end-to-end encryption, group chats, voice/v
 
 ## Features
 
-- 🔒 **End-to-end Encryption** - AES-256-GCM message encryption
 - 👥 **Group Chats** - Create groups with admin controls
 - 📞 **Voice & Video Calls** - WebRTC-based calling
 - 📎 **File Sharing** - Upload and share files
@@ -237,6 +236,10 @@ Before deploying to production:
 - JWT authentication
 - bcryptjs (password hashing)
 - AES-256-GCM encryption
+
+## To-do
+- [ ] Real E2E encryption
+- [ ] Working calls
 
 ## License
 
