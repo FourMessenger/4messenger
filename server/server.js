@@ -86,6 +86,14 @@ function loadBrowserData() {
   return {};
 }
 
+function saveBrowserData(data) {
+  try {
+    fs.writeFileSync(browserDataPath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('[BrowserData] Error saving:', err.message);
+  }
+}
+
 function getRealIp(req) {
   // Берем ТОЛЬКО прямой IP соединения, полностью игнорируем все заголовки
   let realIp = req.socket?.remoteAddress?.replace('::ffff:', '') || 
