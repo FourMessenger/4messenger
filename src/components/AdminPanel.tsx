@@ -36,7 +36,7 @@ export function AdminPanel() {
     fetchUsers, addNotification, authToken,
   } = useStore();
 
-  const [tab, setTab] = useState<'overview' | 'users' | 'config' | 'moderation' | 'logs' | 'announcements' | 'storage' | 'sessions' | 'browsers' | 'botApprovals'>('overview');
+  const [tab, setTab] = useState<'overview' | 'users' | 'config' | 'moderation' | 'logs' | 'announcements' | 'storage' | 'sessions' | 'browsers' | 'botApprovals' | 'auditLogs' | 'loginHistory' | 'messageModeration' | 'userActivity'>('overview');
   const [browserData, setBrowserData] = useState<Record<string, { firstSeen: string; lastSeen: string; userId?: string; username?: string; visits: Array<{ timestamp?: string; action?: string; screenWidth?: number; screenHeight?: number; platform?: string; hardwareConcurrency?: number; deviceMemory?: number; userAgent?: string; timezone?: string; language?: string }> }>>({});
   const [editConfig, setEditConfig] = useState({ ...serverConfig });
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -58,6 +58,18 @@ export function AdminPanel() {
   const [loadingPendingBots, setLoadingPendingBots] = useState(false);
   const [selectedPendingBot, setSelectedPendingBot] = useState<PendingBot | null>(null);
   const [approvingBotId, setApprovingBotId] = useState<string | null>(null);
+
+  // New admin features state
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [loginHistory, setLoginHistory] = useState<any[]>([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [loadingLoginHistory, setLoadingLoginHistory] = useState(false);
+  const [messageSearchPattern, setMessageSearchPattern] = useState('');
+  const [searchedMessages, setSearchedMessages] = useState<any[]>([]);
+  const [loadingMessageSearch, setLoadingMessageSearch] = useState(false);
+  const [selectedUserActivity, setSelectedUserActivity] = useState<string | null>(null);
+  const [userActivityData, setUserActivityData] = useState<any>(null);
+  const [loadingUserActivity, setLoadingUserActivity] = useState(false);
 
   // Fetch server stats
   useEffect(() => {
@@ -95,6 +107,109 @@ export function AdminPanel() {
       setPendingBots([]);
     } finally {
       setLoadingPendingBots(false);
+    }
+  };
+
+  // Fetch audit logs
+  const fetchAuditLogs = async () => {
+    if (currentUser?.role !== 'admin') return;
+    setLoadingAuditLogs(true);
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/audit-logs?limit=100`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAuditLogs(data.logs || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch audit logs:', e);
+      addNotification('Failed to fetch audit logs', 'error');
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  // Fetch login history
+  const fetchLoginHistory = async () => {
+    if (currentUser?.role !== 'admin') return;
+    setLoadingLoginHistory(true);
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/login-history?limit=100`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLoginHistory(data.history || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch login history:', e);
+      addNotification('Failed to fetch login history', 'error');
+    } finally {
+      setLoadingLoginHistory(false);
+    }
+  };
+
+  // Search messages
+  const searchMessages = async () => {
+    if (!messageSearchPattern.trim()) return;
+    setLoadingMessageSearch(true);
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/messages/search`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ pattern: messageSearchPattern, limit: 50 }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSearchedMessages(data.messages || []);
+      }
+    } catch (e) {
+      console.error('Failed to search messages:', e);
+      addNotification('Failed to search messages', 'error');
+    } finally {
+      setLoadingMessageSearch(false);
+    }
+  };
+
+  // Delete message
+  const deleteMessage = async (messageId: string) => {
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (response.ok) {
+        setSearchedMessages(prev => prev.filter(m => m.id !== messageId));
+        addNotification('Message deleted successfully', 'success');
+      }
+    } catch (e) {
+      console.error('Failed to delete message:', e);
+      addNotification('Failed to delete message', 'error');
+    }
+  };
+
+  // Fetch user activity
+  const fetchUserActivity = async (userId: string) => {
+    if (!userId) return;
+    setLoadingUserActivity(true);
+    setSelectedUserActivity(userId);
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/users/${userId}/activity`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setUserActivityData(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch user activity:', e);
+      addNotification('Failed to fetch user activity', 'error');
+    } finally {
+      setLoadingUserActivity(false);
     }
   };
 
@@ -398,6 +513,10 @@ export function AdminPanel() {
             { id: 'moderation' as const, icon: Shield, label: 'Moderation', adminOnly: false },
             { id: 'sessions' as const, icon: Wifi, label: 'Sessions', adminOnly: false },
             { id: 'botApprovals' as const, icon: Bot, label: 'Bot Approvals', adminOnly: true },
+            { id: 'auditLogs' as const, icon: FileText, label: 'Audit Logs', adminOnly: true },
+            { id: 'loginHistory' as const, icon: Clock, label: 'Login History', adminOnly: true },
+            { id: 'userActivity' as const, icon: Activity, label: 'User Activity', adminOnly: true },
+            { id: 'messageModeration' as const, icon: MessageSquare, label: 'Msg Moderation', adminOnly: true },
             { id: 'storage' as const, icon: HardDrive, label: 'Storage', adminOnly: true },
             { id: 'logs' as const, icon: FileText, label: 'System Logs', adminOnly: false },
             { id: 'announcements' as const, icon: Bell, label: 'Announcements', adminOnly: false },
@@ -1860,6 +1979,226 @@ export function AdminPanel() {
                     </p>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Audit Logs Tab */}
+        {tab === 'auditLogs' && (
+          <div>
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={fetchAuditLogs}
+                disabled={loadingAuditLogs}
+                className="flex items-center gap-2 rounded-xl bg-indigo-500/10 px-4 py-2 text-sm text-indigo-400 hover:bg-indigo-500/20 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${loadingAuditLogs ? 'animate-spin' : ''}`} />
+                Load Logs
+              </button>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="px-4 py-3 text-left text-gray-400">Time</th>
+                    <th className="px-4 py-3 text-left text-gray-400">Admin</th>
+                    <th className="px-4 py-3 text-left text-gray-400">Action</th>
+                    <th className="px-4 py-3 text-left text-gray-400">Target</th>
+                    <th className="px-4 py-3 text-left text-gray-400">IP Address</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                        No audit logs yet
+                      </td>
+                    </tr>
+                  ) : (
+                    auditLogs.map(log => (
+                      <tr key={log.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-white">{log.admin_username || 'Unknown'}</td>
+                        <td className="px-4 py-3 text-indigo-400">{log.action}</td>
+                        <td className="px-4 py-3 text-gray-400">{log.target_id ? log.target_id.substring(0, 8) : '-'}</td>
+                        <td className="px-4 py-3 text-gray-400">{log.ip_address}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Login History Tab */}
+        {tab === 'loginHistory' && (
+          <div>
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={fetchLoginHistory}
+                disabled={loadingLoginHistory}
+                className="flex items-center gap-2 rounded-xl bg-indigo-500/10 px-4 py-2 text-sm text-indigo-400 hover:bg-indigo-500/20 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${loadingLoginHistory ? 'animate-spin' : ''}`} />
+                Load History
+              </button>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="px-4 py-3 text-left text-gray-400">User</th>
+                    <th className="px-4 py-3 text-left text-gray-400">Login Time</th>
+                    <th className="px-4 py-3 text-left text-gray-400">IP Address</th>
+                    <th className="px-4 py-3 text-left text-gray-400">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loginHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
+                        No login history yet
+                      </td>
+                    </tr>
+                  ) : (
+                    loginHistory.map(log => (
+                      <tr key={log.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 text-white">{log.username || 'Unknown'}</td>
+                        <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{new Date(log.loginTime).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-gray-400">{log.ip_address}</td>
+                        <td className="px-4 py-3 text-gray-400">
+                          {Math.floor(log.duration / 1000 / 60)} min
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* User Activity Tab */}
+        {tab === 'userActivity' && (
+          <div>
+            <div className="mb-6 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Select User</label>
+                <select
+                  value={selectedUserActivity || ''}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      fetchUserActivity(e.target.value);
+                    }
+                  }}
+                  className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-white"
+                >
+                  <option value="">Choose a user...</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.username}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {userActivityData && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-gray-400 text-sm">Messages</p>
+                    <p className="text-2xl font-bold text-white">{userActivityData.activity.messageCount}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-gray-400 text-sm">Logins</p>
+                    <p className="text-2xl font-bold text-white">{userActivityData.activity.loginCount}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-gray-400 text-sm">Last Seen</p>
+                    <p className="text-sm text-white">{userActivityData.activity.lastLogin ? new Date(userActivityData.activity.lastLogin).toLocaleDateString() : 'Never'}</p>
+                  </div>
+                </div>
+              )}
+              
+              {userActivityData?.activity.messagesByDay && userActivityData.activity.messagesByDay.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <h4 className="text-white font-semibold mb-4">Messages (Last 7 Days)</h4>
+                  <div className="space-y-2">
+                    {userActivityData.activity.messagesByDay.map((day: any) => (
+                      <div key={day.day} className="flex justify-between items-center">
+                        <span className="text-gray-400 text-sm">{day.day}</span>
+                        <div className="h-1 bg-indigo-500 rounded" style={{ width: `${(day.count / 50) * 100}px` }} />
+                        <span className="text-white text-sm font-medium">{day.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Message Moderation Tab */}
+        {tab === 'messageModeration' && (
+          <div>
+            <div className="mb-6 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Search Pattern</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={messageSearchPattern}
+                    onChange={(e) => setMessageSearchPattern(e.target.value)}
+                    placeholder="Search for keywords in messages..."
+                    className="flex-1 rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-white placeholder-gray-500"
+                  />
+                  <button
+                    onClick={searchMessages}
+                    disabled={loadingMessageSearch}
+                    className="flex items-center gap-2 rounded-xl bg-indigo-500/10 px-4 py-2 text-sm text-indigo-400 hover:bg-indigo-500/20 disabled:opacity-50"
+                  >
+                    <Search className={`h-4 w-4 ${loadingMessageSearch ? 'animate-spin' : ''}`} />
+                    Search
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-4 py-3 text-left text-gray-400">Content</th>
+                      <th className="px-4 py-3 text-left text-gray-400">Sender</th>
+                      <th className="px-4 py-3 text-left text-gray-400">Date</th>
+                      <th className="px-4 py-3 text-left text-gray-400">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {searchedMessages.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
+                          {messageSearchPattern ? 'No messages found' : 'Enter a search pattern to find messages'}
+                        </td>
+                      </tr>
+                    ) : (
+                      searchedMessages.map(msg => (
+                        <tr key={msg.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                          <td className="px-4 py-3 text-gray-400 truncate max-w-xs">{msg.content}</td>
+                          <td className="px-4 py-3 text-white text-sm">{users.find(u => u.id === msg.senderId)?.username || 'Unknown'}</td>
+                          <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-sm">{new Date(msg.createdAt).toLocaleString()}</td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => deleteMessage(msg.id)}
+                              className="flex items-center gap-1 rounded px-2 py-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

@@ -621,6 +621,51 @@ function modMiddleware(req, res, next) {
   next();
 }
 
+// ─── Admin Helper Functions ────────────────────────────────
+
+// Log admin action to audit log
+function logAuditAction(adminId, action, targetId, targetType, oldValue, newValue, ipAddress) {
+  try {
+    const id = uuidv4();
+    const timestamp = Date.now();
+    dbRun(`
+      INSERT INTO audit_logs (id, admin_id, action, target_id, target_type, old_value, new_value, ip_address, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, adminId, action, targetId, targetType, oldValue, newValue, ipAddress, timestamp]);
+    saveDatabase();
+  } catch (err) {
+    console.error('[AUDIT] Failed to log action:', err.message);
+  }
+}
+
+// Record user login
+function recordUserLogin(userId, ipAddress, userAgent) {
+  try {
+    const id = uuidv4();
+    const loginTime = Date.now();
+    dbRun(`
+      INSERT INTO login_history (id, user_id, ip_address, user_agent, login_time, logout_time)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `, [id, userId, ipAddress || 'unknown', userAgent || 'unknown', loginTime]);
+    saveDatabase();
+    return id;
+  } catch (err) {
+    console.error('[LOGIN] Failed to record login:', err.message);
+  }
+}
+
+// Record user logout
+function recordUserLogout(loginHistoryId) {
+  try {
+    if (loginHistoryId) {
+      dbRun(`UPDATE login_history SET logout_time = ? WHERE id = ?`, [Date.now(), loginHistoryId]);
+      saveDatabase();
+    }
+  } catch (err) {
+    console.error('[LOGIN] Failed to record logout:', err.message);
+  }
+}
+
 // ─── API Routes ────────────────────────────────────────────
 
 // --- BOTS API ---
@@ -889,6 +934,15 @@ app.post('/api/login', (req, res) => {
   
   // Associate browser data with user
   updateBrowserDataUser(req, user.id, user.username);
+
+  // Record login history
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   req.ip?.replace('::ffff:', '') || 
+                   'unknown';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  recordUserLogin(user.id, ipAddress, userAgent);
 
   const token = jwt.sign({ userId: user.id }, config.security.jwtSecret, { expiresIn: config.security.jwtExpiry });
 
@@ -1285,8 +1339,21 @@ app.put('/api/users/:id/role', authMiddleware, adminMiddleware, (req, res) => {
   if (!['admin', 'moderator', 'user', 'banned'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
+  
+  const targetUser = dbGet('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  if (!targetUser) return res.status(404).json({ error: 'User not found' });
+  
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   'unknown';
+  
   dbRun('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
   saveDatabase();
+  
+  // Log audit action
+  logAuditAction(req.user.id, 'change_role', req.params.id, 'user', targetUser.role, role, ipAddress);
+  
   broadcastToAll({ type: 'user_updated', userId: req.params.id, role });
   res.json({ success: true });
 });
@@ -1307,16 +1374,37 @@ app.post('/api/users/:id/ban', authMiddleware, modMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Cannot ban yourself' });
   }
   
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   'unknown';
+  
   dbRun('UPDATE users SET role = ?, online = 0 WHERE id = ?', ['banned', req.params.id]);
   saveDatabase();
+  
+  // Log audit action
+  logAuditAction(req.user.id, 'ban_user', req.params.id, 'user', targetUser.role, 'banned', ipAddress);
+  
   broadcastToAll({ type: 'user_banned', userId: req.params.id });
   res.json({ success: true });
 });
 
 // Unban user
 app.post('/api/users/:id/unban', authMiddleware, modMiddleware, (req, res) => {
+  const targetUser = dbGet('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  if (!targetUser) return res.status(404).json({ error: 'User not found' });
+  
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   'unknown';
+  
   dbRun('UPDATE users SET role = ? WHERE id = ?', ['user', req.params.id]);
   saveDatabase();
+  
+  // Log audit action
+  logAuditAction(req.user.id, 'unban_user', req.params.id, 'user', 'banned', 'user', ipAddress);
+  
   res.json({ success: true });
 });
 
@@ -1326,8 +1414,21 @@ app.delete('/api/users/:id', authMiddleware, adminMiddleware, (req, res) => {
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: 'Cannot delete yourself' });
   }
+  
+  const targetUser = dbGet('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   'unknown';
+  
   dbRun('DELETE FROM users WHERE id = ?', [req.params.id]);
   saveDatabase();
+  
+  // Log audit action
+  if (targetUser) {
+    logAuditAction(req.user.id, 'delete_user', req.params.id, 'user', targetUser.username, 'deleted', ipAddress);
+  }
+  
   res.json({ success: true });
 });
 
@@ -1346,6 +1447,11 @@ app.post('/api/users/:id/kick', authMiddleware, modMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Cannot kick yourself' });
   }
   
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   'unknown';
+  
   // Send kick message to the user
   sendToUser(req.params.id, { type: 'kicked', reason: req.body.reason || 'You have been kicked from the server' });
   
@@ -1362,12 +1468,20 @@ app.post('/api/users/:id/kick', authMiddleware, modMiddleware, (req, res) => {
   dbRun('UPDATE users SET online = 0 WHERE id = ?', [req.params.id]);
   saveDatabase();
   
+  // Log audit action
+  logAuditAction(req.user.id, 'kick_user', req.params.id, 'user', 'online', 'kicked', ipAddress);
+  
   broadcastToAll({ type: 'user_offline', userId: req.params.id });
   res.json({ success: true });
 });
 
 // Kick all users (admin only)
 app.post('/api/admin/kick-all', authMiddleware, adminMiddleware, (req, res) => {
+  const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                   req.headers['x-real-ip'] || 
+                   req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                   'unknown';
+  
   // Send kick message to all users except admin
   wss.clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -3175,6 +3289,226 @@ app.post('/api/admin/maintenance', authMiddleware, adminMiddleware, (req, res) =
   });
 });
 
+// ─── Admin Audit & Activity Endpoints ──────────────────────
+
+// Get audit logs (admin only)
+app.get('/api/admin/audit-logs', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const logs = dbAll(`
+      SELECT l.*, u.username as admin_username 
+      FROM audit_logs l
+      LEFT JOIN users u ON l.admin_id = u.id
+      ORDER BY l.timestamp DESC
+      LIMIT ? OFFSET ?
+    `, [limit, offset]);
+    
+    const totalResult = dbGet('SELECT COUNT(*) as count FROM audit_logs');
+    const total = totalResult?.count || 0;
+    
+    res.json({
+      logs: logs.map(log => ({
+        ...log,
+        timestamp: log.timestamp,
+        timestampIso: new Date(log.timestamp).toISOString()
+      })),
+      total,
+      limit,
+      offset
+    });
+  } catch (error) {
+    console.error('[AUDIT] Failed to fetch logs:', error.message);
+    res.status(500).json({ error: 'Failed to fetch audit logs' });
+  }
+});
+
+// Clear audit logs (admin only)
+app.delete('/api/admin/audit-logs', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    dbRun('DELETE FROM audit_logs');
+    saveDatabase();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to clear audit logs' });
+  }
+});
+
+// Get login history (admin only)
+app.get('/api/admin/login-history', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const offset = parseInt(req.query.offset) || 0;
+    const userId = req.query.userId;
+    
+    let query = `
+      SELECT l.*, u.username 
+      FROM login_history l
+      LEFT JOIN users u ON l.user_id = u.id
+    `;
+    const params = [];
+    
+    if (userId) {
+      query += ` WHERE l.user_id = ?`;
+      params.push(userId);
+    }
+    
+    query += ` ORDER BY l.login_time DESC LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+    
+    const history = dbAll(query, params);
+    
+    let countQuery = 'SELECT COUNT(*) as count FROM login_history';
+    const countParams = [];
+    if (userId) {
+      countQuery += ` WHERE user_id = ?`;
+      countParams.push(userId);
+    }
+    const totalResult = dbGet(countQuery, countParams);
+    const total = totalResult?.count || 0;
+    
+    res.json({
+      history: history.map(log => ({
+        ...log,
+        loginTime: log.login_time,
+        logoutTime: log.logout_time,
+        loginTimeIso: new Date(log.login_time).toISOString(),
+        logoutTimeIso: log.logout_time ? new Date(log.logout_time).toISOString() : null,
+        duration: log.logout_time ? log.logout_time - log.login_time : Date.now() - log.login_time
+      })),
+      total,
+      limit,
+      offset
+    });
+  } catch (error) {
+    console.error('[LOGIN] Failed to fetch history:', error.message);
+    res.status(500).json({ error: 'Failed to fetch login history' });
+  }
+});
+
+// Search and delete messages (admin only)
+app.post('/api/admin/messages/search', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { pattern, userId, chatId, limit } = req.body;
+    const searchLimit = Math.min(limit || 50, 200);
+    
+    let query = 'SELECT * FROM messages WHERE 1=1';
+    const params = [];
+    
+    if (pattern) {
+      query += ` AND content LIKE ?`;
+      params.push(`%${pattern}%`);
+    }
+    
+    if (userId) {
+      query += ` AND sender_id = ?`;
+      params.push(userId);
+    }
+    
+    if (chatId) {
+      query += ` AND chat_id = ?`;
+      params.push(chatId);
+    }
+    
+    query += ` ORDER BY created_at DESC LIMIT ?`;
+    params.push(searchLimit);
+    
+    const messages = dbAll(query, params);
+    
+    res.json({
+      messages: messages.map(msg => ({
+        id: msg.id,
+        content: msg.content.substring(0, 100),
+        senderId: msg.sender_id,
+        chatId: msg.chat_id,
+        createdAt: msg.created_at,
+        createdAtIso: new Date(msg.created_at).toISOString()
+      })),
+      count: messages.length
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to search messages:', error.message);
+    res.status(500).json({ error: 'Failed to search messages' });
+  }
+});
+
+// Delete messages (admin only)
+app.delete('/api/admin/messages/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const message = dbGet('SELECT * FROM messages WHERE id = ?', [req.params.id]);
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+    
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                     req.headers['x-real-ip'] || 
+                     req.socket?.remoteAddress?.replace('::ffff:', '') || 
+                     'unknown';
+    
+    dbRun('DELETE FROM messages WHERE id = ?', [req.params.id]);
+    saveDatabase();
+    
+    // Log audit action
+    logAuditAction(req.user.id, 'delete_message', req.params.id, 'message', message.content.substring(0, 50), 'deleted', ipAddress);
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// Get user activity stats (admin only)
+app.get('/api/admin/users/:id/activity', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const user = dbGet('SELECT * FROM users WHERE id = ?', [req.params.id]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    // Message count
+    const messageResult = dbGet('SELECT COUNT(*) as count FROM messages WHERE sender_id = ?', [req.params.id]);
+    const messageCount = messageResult?.count || 0;
+    
+    // Login count
+    const loginResult = dbGet('SELECT COUNT(*) as count FROM login_history WHERE user_id = ?', [req.params.id]);
+    const loginCount = loginResult?.count || 0;
+    
+    // First and last login
+    const firstLogin = dbGet('SELECT login_time FROM login_history WHERE user_id = ? ORDER BY login_time ASC LIMIT 1', [req.params.id]);
+    const lastLogin = dbGet('SELECT login_time FROM login_history WHERE user_id = ? ORDER BY login_time DESC LIMIT 1', [req.params.id]);
+    
+    // Message timeline (last 7 days)
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const messagesByDay = dbAll(`
+      SELECT DATE(created_at / 1000, 'unixepoch') as day, COUNT(*) as count
+      FROM messages
+      WHERE sender_id = ? AND created_at > ?
+      GROUP BY day
+      ORDER BY day DESC
+    `, [req.params.id, sevenDaysAgo]);
+    
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        createdAt: user.created_at
+      },
+      activity: {
+        messageCount,
+        loginCount,
+        firstLogin: firstLogin?.login_time ? new Date(firstLogin.login_time).toISOString() : null,
+        lastLogin: lastLogin?.login_time ? new Date(lastLogin.login_time).toISOString() : null,
+        messagesByDay: messagesByDay.map(d => ({
+          day: d.day,
+          count: d.count
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to fetch activity:', error.message);
+    res.status(500).json({ error: 'Failed to fetch user activity' });
+  }
+});
+
 // ─── WebSocket Server ──────────────────────────────────────
 const wss = new WebSocket.Server({ server, path: '/ws' });
 const wsClients = new Map(); // userId -> Set<ws>
@@ -3711,6 +4045,35 @@ async function startServer() {
       )
     `);
 
+    // Admin Audit Log table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY,
+        admin_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target_id TEXT,
+        target_type TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        ip_address TEXT,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Login History table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS login_history (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        login_time INTEGER NOT NULL,
+        logout_time INTEGER,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
     // Stickers tables
     db.run(`
       CREATE TABLE IF NOT EXISTS stickers (
@@ -3739,6 +4102,10 @@ async function startServer() {
     db.run('CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)');
     db.run('CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_members(user_id)');
     db.run('CREATE INDEX IF NOT EXISTS idx_chat_members_chat ON chat_members(chat_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_audit_logs_admin ON audit_logs(admin_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_login_history_user ON login_history(user_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_login_history_time ON login_history(login_time)');
 
     console.log('[DB] Database initialized successfully');
 
