@@ -3175,6 +3175,279 @@ app.post('/api/admin/maintenance', authMiddleware, adminMiddleware, (req, res) =
   });
 });
 
+// ─── Additional Admin Routes ───────────────────────────────
+
+// System Health
+app.get('/api/admin/health', authMiddleware, adminMiddleware, (req, res) => {
+  const os = require('os');
+  const health = {
+    uptime: process.uptime(),
+    memory: {
+      used: process.memoryUsage().heapUsed,
+      total: process.memoryUsage().heapTotal,
+      external: process.memoryUsage().external,
+      rss: process.memoryUsage().rss,
+    },
+    system: {
+      platform: os.platform(),
+      arch: os.arch(),
+      cpus: os.cpus().length,
+      totalMemory: os.totalmem(),
+      freeMemory: os.freemem(),
+      loadAverage: os.loadavg(),
+    },
+    database: {
+      size: fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0,
+    },
+    timestamp: Date.now(),
+  };
+  res.json(health);
+});
+
+// Database Backup
+app.post('/api/admin/database/backup', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const backupDir = path.join(__dirname, 'backups');
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupDir, `backup-${timestamp}.db`);
+    
+    if (db) {
+      const data = db.export();
+      const buffer = Buffer.from(data);
+      fs.writeFileSync(backupPath, buffer);
+    }
+    
+    console.log(`[ADMIN] Database backup created: ${backupPath} by ${req.user.username}`);
+    res.json({ success: true, path: backupPath, size: fs.statSync(backupPath).size });
+  } catch (error) {
+    console.error('[ADMIN] Backup failed:', error);
+    res.status(500).json({ error: 'Backup failed' });
+  }
+});
+
+// Database Export (JSON)
+app.get('/api/admin/database/export', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const exportData = {
+      users: db.prepare('SELECT id, username, email, role, emailVerified, online, createdAt FROM users').all(),
+      chats: db.prepare('SELECT id, name, type, createdAt FROM chats').all(),
+      messages: db.prepare('SELECT id, chatId, userId, content, type, createdAt FROM messages ORDER BY createdAt DESC LIMIT 1000').all(),
+      exportedAt: new Date().toISOString(),
+    };
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="4messenger-export-${new Date().toISOString().split('T')[0]}.json"`);
+    res.json(exportData);
+  } catch (error) {
+    console.error('[ADMIN] Export failed:', error);
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
+// Message Statistics
+app.get('/api/admin/messages/stats', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const stats = {
+      totalMessages: db.prepare('SELECT COUNT(*) as count FROM messages').get().count,
+      messagesByType: db.prepare('SELECT type, COUNT(*) as count FROM messages GROUP BY type').all(),
+      messagesByDay: db.prepare(`
+        SELECT DATE(createdAt / 1000, 'unixepoch') as date, COUNT(*) as count 
+        FROM messages 
+        WHERE createdAt > ? 
+        GROUP BY DATE(createdAt / 1000, 'unixepoch') 
+        ORDER BY date DESC LIMIT 30
+      `, [Date.now() - 30 * 24 * 60 * 60 * 1000]).all(),
+      topUsers: db.prepare(`
+        SELECT u.username, COUNT(m.id) as messageCount 
+        FROM messages m 
+        JOIN users u ON m.userId = u.id 
+        GROUP BY m.userId 
+        ORDER BY messageCount DESC LIMIT 10
+      `).all(),
+    };
+    res.json(stats);
+  } catch (error) {
+    console.error('[ADMIN] Message stats failed:', error);
+    res.status(500).json({ error: 'Failed to get message stats' });
+  }
+});
+
+// Get Messages for Admin
+app.get('/api/admin/messages', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const messages = db.prepare(`
+      SELECT 
+        m.id, m.content, m.type, m.createdAt as timestamp, m.chatId,
+        u.username, u.email,
+        c.name as chatName, c.type as chatType
+      FROM messages m
+      JOIN users u ON m.userId = u.id
+      LEFT JOIN chats c ON m.chatId = c.id
+      ORDER BY m.createdAt DESC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset);
+    
+    res.json(messages);
+  } catch (error) {
+    console.error('[ADMIN] Error getting messages:', error);
+    res.status(500).json({ error: 'Failed to get messages' });
+  }
+});
+
+// Delete Messages (by user, chat, date, or specific IDs)
+app.delete('/api/admin/messages', authMiddleware, adminMiddleware, (req, res) => {
+  const { userId, chatId, beforeDate, messageIds } = req.body;
+  
+  try {
+    let query = 'DELETE FROM messages WHERE 1=1';
+    const params = [];
+    
+    if (messageIds && Array.isArray(messageIds)) {
+      // Delete specific messages
+      const placeholders = messageIds.map(() => '?').join(',');
+      query += ` AND id IN (${placeholders})`;
+      params.push(...messageIds);
+    } else {
+      // Delete by criteria
+      if (userId) {
+        query += ' AND userId = ?';
+        params.push(userId);
+      }
+      
+      if (chatId) {
+        query += ' AND chatId = ?';
+        params.push(chatId);
+      }
+      
+      if (beforeDate) {
+        query += ' AND createdAt < ?';
+        params.push(new Date(beforeDate).getTime());
+      }
+    }
+    
+    const result = dbRun(query, params);
+    saveDatabase();
+    
+    console.log(`[ADMIN] Deleted ${result.changes} messages by ${req.user.username}`);
+    res.json({ success: true, deleted: result.changes });
+  } catch (error) {
+    console.error('[ADMIN] Delete messages failed:', error);
+    res.status(500).json({ error: 'Failed to delete messages' });
+  }
+});
+
+// List Uploaded Files
+app.get('/api/admin/files', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const uploadDir = path.resolve(__dirname, config.files.uploadDir);
+    const files = [];
+    
+    if (fs.existsSync(uploadDir)) {
+      const items = fs.readdirSync(uploadDir);
+      for (const item of items) {
+        const itemPath = path.join(uploadDir, item);
+        const stats = fs.statSync(itemPath);
+        if (stats.isFile()) {
+          files.push({
+            name: item,
+            size: stats.size,
+            modified: stats.mtime.getTime(),
+            path: itemPath,
+          });
+        }
+      }
+    }
+    
+    res.json({ files, totalSize: files.reduce((sum, f) => sum + f.size, 0) });
+  } catch (error) {
+    console.error('[ADMIN] List files failed:', error);
+    res.status(500).json({ error: 'Failed to list files' });
+  }
+});
+
+// Delete File
+app.delete('/api/admin/files/:filename', authMiddleware, adminMiddleware, (req, res) => {
+  const filename = req.params.filename;
+  
+  try {
+    const uploadDir = path.resolve(__dirname, config.files.uploadDir);
+    const filePath = path.join(uploadDir, filename);
+    
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`[ADMIN] Deleted file: ${filename} by ${req.user.username}`);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'File not found' });
+    }
+  } catch (error) {
+    console.error('[ADMIN] Delete file failed:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+// Clear Logs
+app.post('/api/admin/logs/clear', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const logFile = path.resolve(__dirname, config.logging.file);
+    if (fs.existsSync(logFile)) {
+      fs.writeFileSync(logFile, '');
+      console.log(`[ADMIN] Logs cleared by ${req.user.username}`);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN] Clear logs failed:', error);
+    res.status(500).json({ error: 'Failed to clear logs' });
+  }
+});
+
+// Server Restart (simulate - in real deployment, this would restart the process)
+app.post('/api/admin/server/restart', authMiddleware, adminMiddleware, (req, res) => {
+  console.log(`[ADMIN] Server restart requested by ${req.user.username}`);
+  
+  // Notify all users
+  broadcastToAll({ 
+    type: 'announcement', 
+    message: 'Server is restarting... You will be disconnected momentarily.' 
+  });
+  
+  // Close all connections
+  setTimeout(() => {
+    wss.clients.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, 'Server restarting');
+      }
+    });
+    
+    // In a real deployment, you would restart the process here
+    // For this demo, we'll just simulate
+    setTimeout(() => {
+      console.log('[ADMIN] Server "restarted"');
+    }, 2000);
+  }, 1000);
+  
+  res.json({ success: true, message: 'Server restart initiated' });
+});
+
+// Clear Cache (if any)
+app.post('/api/admin/cache/clear', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    // Clear any cached data if implemented
+    console.log(`[ADMIN] Cache cleared by ${req.user.username}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN] Clear cache failed:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
 // ─── WebSocket Server ──────────────────────────────────────
 const wss = new WebSocket.Server({ server, path: '/ws' });
 const wsClients = new Map(); // userId -> Set<ws>
