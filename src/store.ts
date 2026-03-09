@@ -538,34 +538,42 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const hasStore = await E2EE.keyStoreExists();
       if (hasStore) {
-        const unlocked = await E2EE.unlockKeyStore(password);
-        if (unlocked) {
-          keyPair = E2EE.getKeyPair();
+        // Try to unlock existing key store with the login password
+        keyPair = await E2EE.unlockKeyStore(password);
+        if (!keyPair) {
+          console.warn('[E2EE] Failed to unlock key store with provided password');
         }
       } else {
-        // Migrate legacy keys if they exist, otherwise create new.
+        // No key store exists, try to migrate legacy keys or create new ones
         let legacy: { publicKey: string; privateKey: string } | null = null;
         try {
           const storedKeys = localStorage.getItem('4messenger-e2ee-keys');
           if (storedKeys) legacy = JSON.parse(storedKeys);
-        } catch {}
+        } catch (e) {
+          console.warn('[E2EE] Failed to parse legacy keys:', e);
+        }
 
         if (legacy && legacy.publicKey && legacy.privateKey) {
+          // Migrate legacy keys to new password-protected store
           const migrated = await E2EE.importLegacyKeyPair(password, legacy);
           if (migrated) {
             localStorage.removeItem('4messenger-e2ee-keys');
             keyPair = legacy;
             shouldUploadPublicKey = true;
+            console.log('[E2EE] Successfully migrated legacy keys');
           }
         }
 
+        // If no legacy keys or migration failed, create new key store
         if (!keyPair) {
           keyPair = await E2EE.initializeKeyStore(password);
           shouldUploadPublicKey = true;
+          console.log('[E2EE] Created new key store');
         }
       }
     } catch (e) {
       console.error('[E2EE] Key store error:', e);
+      // Continue with null keyPair - will be created fresh next time
     }
 
     set({ e2eeKeyPair: keyPair });
@@ -610,18 +618,25 @@ export const useStore = create<AppState>((set, get) => ({
 
       // If we have identity keys, also load any stored chat keys into memory
       // so incoming encrypted messages can decrypt immediately.
-      try {
-        const chatsToLoad = get().chats;
-        for (const c of chatsToLoad) {
-          const existing = get().chatKeys[c.id];
-          if (!existing) {
-            const loaded = await E2EE.loadChatKey(c.id);
-            if (loaded) {
-              set(s => ({ chatKeys: { ...s.chatKeys, [c.id]: loaded } }));
+      if (keyPair) {
+        try {
+          const chatsToLoad = get().chats;
+          for (const c of chatsToLoad) {
+            const existing = get().chatKeys[c.id];
+            if (!existing) {
+              const loaded = await E2EE.loadChatKey(c.id);
+              if (loaded) {
+                set(s => ({ chatKeys: { ...s.chatKeys, [c.id]: loaded } }));
+              }
             }
           }
+          console.log('[E2EE] Loaded chat keys for', Object.keys(get().chatKeys).length, 'chats');
+        } catch (e) {
+          console.error('[E2EE] Failed to load chat keys:', e);
         }
-      } catch {}
+      } else {
+        console.warn('[E2EE] No key pair available, encrypted messages will show as locked');
+      }
       
       // Setup WebSocket connection
       const wsUrl = serverUrl.replace(/^http/, 'ws').replace(/\/$/, '');
@@ -902,8 +917,8 @@ export const useStore = create<AppState>((set, get) => ({
     
     // Clear saved session
     clearSession();
-    // Do NOT clear encryption keys, they are tied to this device.
-    // If they were cleared, the user would lose access to all past messages unless they have a backup.
+    // Do NOT clear encryption keys from IndexedDB - they are tied to this device.
+    // But clear the in-memory key pair so it must be unlocked on next login.
     
     set({
       currentUser: null,
@@ -917,6 +932,7 @@ export const useStore = create<AppState>((set, get) => ({
       connected: false,
       serverUrl: '',
       websocket: null,
+      e2eeKeyPair: null,  // Clear in-memory key pair after logout
     });
     get().addNotification('Logged out successfully', 'info');
   },

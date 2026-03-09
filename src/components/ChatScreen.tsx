@@ -967,7 +967,7 @@ export function ChatScreen() {
                     : hasBotInChat(chat)
                     ? 'Encryption disabled for this chat (bot participants)'
                     : isE2EELocked()
-                    ? 'Encrypted messages are locked (sign out and sign in to unlock)'
+                    ? 'Encrypted messages are locked (refresh the page or log in again to unlock)'
                     : 'Encryption not set up for this chat yet'}
                 </div>
               )}
