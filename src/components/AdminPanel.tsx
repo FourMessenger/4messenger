@@ -36,7 +36,7 @@ export function AdminPanel() {
     fetchUsers, addNotification, authToken,
   } = useStore();
 
-  const [tab, setTab] = useState<'overview' | 'users' | 'config' | 'moderation' | 'logs' | 'announcements' | 'storage' | 'sessions' | 'browsers' | 'botApprovals' | 'system' | 'messages' | 'server' | 'files'>('overview');
+  const [tab, setTab] = useState<'overview' | 'users' | 'config' | 'moderation' | 'logs' | 'announcements' | 'storage' | 'sessions' | 'browsers' | 'botApprovals'>('overview');
   const [browserData, setBrowserData] = useState<Record<string, { firstSeen: string; lastSeen: string; userId?: string; username?: string; visits: Array<{ timestamp?: string; action?: string; screenWidth?: number; screenHeight?: number; platform?: string; hardwareConcurrency?: number; deviceMemory?: number; userAgent?: string; timezone?: string; language?: string }> }>>({});
   const [editConfig, setEditConfig] = useState({ ...serverConfig });
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -51,8 +51,6 @@ export function AdminPanel() {
   const [logsExpanded, setLogsExpanded] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasswordField, setShowPasswordField] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState('Server is under maintenance. Please try again later.');
   const [loadingMaintenance, setLoadingMaintenance] = useState(false);
@@ -60,16 +58,6 @@ export function AdminPanel() {
   const [loadingPendingBots, setLoadingPendingBots] = useState(false);
   const [selectedPendingBot, setSelectedPendingBot] = useState<PendingBot | null>(null);
   const [approvingBotId, setApprovingBotId] = useState<string | null>(null);
-  const [systemHealth, setSystemHealth] = useState<any>(null);
-  const [messageStats, setMessageStats] = useState<any>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
-  const [loadingSystem, setLoadingSystem] = useState(false);
-  const [performingAction, setPerformingAction] = useState<string | null>(null);
-  const [allMessages, setAllMessages] = useState<any[]>([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-  const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
-  const [messageSearch, setMessageSearch] = useState('');
-  const [showSecurityLogs, setShowSecurityLogs] = useState(false);
 
   // Fetch server stats
   useEffect(() => {
@@ -110,142 +98,104 @@ export function AdminPanel() {
     }
   };
 
-  const fetchAllMessages = async () => {
-    if (currentUser?.role !== 'admin') return;
-    setLoadingMessages(true);
+  // Fetch pending bots when opening approvals tab (admin only)
+  useEffect(() => {
+    if (tab === 'botApprovals' && currentUser?.role === 'admin') {
+      fetchPendingBots();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, currentUser?.role, serverUrl, authToken]);
+
+  // Simulate logs (in real app, fetch from server)
+  useEffect(() => {
+    const mockLogs: LogEntry[] = [
+      { id: '1', timestamp: Date.now() - 60000, type: 'success', action: 'User logged in', user: 'admin', details: 'IP: 192.168.1.1' },
+      { id: '2', timestamp: Date.now() - 120000, type: 'info', action: 'Server started', details: 'Port 3000' },
+      { id: '3', timestamp: Date.now() - 300000, type: 'warning', action: 'Rate limit triggered', user: 'unknown', details: 'IP: 10.0.0.1' },
+    ];
+    setLogs(mockLogs);
+  }, []);
+
+  // Fetch browser data (admin only)
+  useEffect(() => {
+    const fetchBrowserData = async () => {
+      if (currentUser?.role !== 'admin') return;
+      try {
+        const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/browsers`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setBrowserData(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch browser data:', error);
+      }
+    };
+    fetchBrowserData();
+  }, [serverUrl, authToken, currentUser?.role]);
+
+  // Fetch maintenance mode status (admin only)
+  useEffect(() => {
+    const fetchMaintenanceStatus = async () => {
+      if (currentUser?.role !== 'admin') return;
+      try {
+        const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/maintenance`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setMaintenanceMode(data.enabled);
+          setMaintenanceMessage(data.message || 'Server is under maintenance. Please try again later.');
+        }
+      } catch (error) {
+        console.error('Failed to fetch maintenance status:', error);
+      }
+    };
+    fetchMaintenanceStatus();
+  }, [serverUrl, authToken, currentUser?.role]);
+
+  const handleToggleMaintenance = async () => {
+    setLoadingMaintenance(true);
     try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/messages`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/maintenance`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}` 
+        },
+        body: JSON.stringify({ 
+          enabled: !maintenanceMode, 
+          message: maintenanceMessage 
+        }),
       });
       if (response.ok) {
         const data = await response.json();
-        setAllMessages(data || []);
+        setMaintenanceMode(data.enabled);
+        addNotification(
+          data.enabled 
+            ? '🔧 Maintenance mode enabled. All non-admin users will be disconnected.' 
+            : '✅ Maintenance mode disabled. Users can now connect.',
+          data.enabled ? 'info' : 'success'
+        );
       } else {
-        setAllMessages([]);
-      }
-    } catch (e) {
-      console.error('Failed to fetch messages:', e);
-      setAllMessages([]);
-    } finally {
-      setLoadingMessages(false);
-    }
-  };
-
-  const fetchSecurityLogs = async () => {
-    if (!isAdmin) return;
-    setLoadingSecurityLogs(true);
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/security/logs`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSecurityLogs(data || []);
-      } else {
-        setSecurityLogs([]);
+        addNotification('Failed to toggle maintenance mode', 'error');
       }
     } catch (error) {
-      console.error('Failed to fetch security logs:', error);
-      setSecurityLogs([]);
-    } finally {
-      setLoadingSecurityLogs(false);
+      console.error('Failed to toggle maintenance:', error);
+      addNotification('Failed to toggle maintenance mode', 'error');
     }
+    setLoadingMaintenance(false);
   };
 
-  const fetchSystemHealth = async () => {
-    if (currentUser?.role !== 'admin') return;
-    setLoadingSystem(true);
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/health`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSystemHealth(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch system health:', error);
-    } finally {
-      setLoadingSystem(false);
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchUsers();
+    if (tab === 'botApprovals' && currentUser?.role === 'admin') {
+      await fetchPendingBots();
     }
-  };
-
-  const fetchMessageStats = async () => {
-    if (currentUser?.role !== 'admin') return;
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/messages/stats`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setMessageStats(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch message stats:', error);
-    }
-  };
-
-  const fetchUploadedFiles = async () => {
-    if (currentUser?.role !== 'admin') return;
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/files`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUploadedFiles(data || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch uploaded files:', error);
-    }
-  };
-
-  const fetchSystemHealth = async () => {
-    if (currentUser?.role !== 'admin') return;
-    setLoadingSystem(true);
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/health`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSystemHealth(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch system health:', error);
-    } finally {
-      setLoadingSystem(false);
-    }
-  };
-
-  const fetchMessageStats = async () => {
-    if (currentUser?.role !== 'admin') return;
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/messages/stats`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setMessageStats(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch message stats:', error);
-    }
-  };
-
-  const fetchUploadedFiles = async () => {
-    if (currentUser?.role !== 'admin') return;
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/files`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUploadedFiles(data || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch uploaded files:', error);
-    }
+    setTimeout(() => setRefreshing(false), 500);
+    addNotification('Data refreshed', 'success');
   };
 
   const isAdmin = currentUser?.role === 'admin';
@@ -367,94 +317,6 @@ export function AdminPanel() {
     }
   };
 
-  // System functions
-  const fetchSystemHealth = async () => {
-    if (!isAdmin) return;
-    setLoadingSystem(true);
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/health`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSystemHealth(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch system health:', error);
-    } finally {
-      setLoadingSystem(false);
-    }
-  };
-
-  const fetchMessageStats = async () => {
-    if (!isAdmin) return;
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/messages/stats`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setMessageStats(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch message stats:', error);
-    }
-  };
-
-  const fetchUploadedFiles = async () => {
-    if (!isAdmin) return;
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/files`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUploadedFiles(data.files || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch uploaded files:', error);
-    }
-  };
-
-  const performSystemAction = async (action: string, endpoint: string, method: string = 'POST', body?: any) => {
-    setPerformingAction(action);
-    try {
-      const response = await fetch(`${serverUrl.replace(/\/$/, '')}${endpoint}`, {
-        method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        addNotification(`${action} completed successfully`, 'success');
-        
-        // Refresh relevant data
-        if (action.includes('backup') || action.includes('export')) {
-          // Could trigger download if needed
-        } else if (action.includes('delete') || action.includes('clear')) {
-          if (action.includes('file')) fetchUploadedFiles();
-          if (action.includes('message')) fetchMessageStats();
-          if (action.includes('log')) setLogs([]);
-        } else if (action.includes('restart')) {
-          // Server will disconnect users
-        }
-        
-        return data;
-      } else {
-        addNotification(`${action} failed`, 'error');
-      }
-    } catch (error) {
-      console.error(`Failed to ${action}:`, error);
-      addNotification(`${action} failed`, 'error');
-    } finally {
-      setPerformingAction(null);
-    }
-  };
-
   const exportUsers = () => {
     const data = users.map(u => ({
       username: u.username,
@@ -540,10 +402,6 @@ export function AdminPanel() {
             { id: 'logs' as const, icon: FileText, label: 'System Logs', adminOnly: false },
             { id: 'announcements' as const, icon: Bell, label: 'Announcements', adminOnly: false },
             { id: 'browsers' as const, icon: Globe, label: 'Browser Data', adminOnly: true },
-            { id: 'system' as const, icon: Zap, label: 'System', adminOnly: true },
-            { id: 'messages' as const, icon: MessageSquare, label: 'Messages', adminOnly: true },
-            { id: 'server' as const, icon: Server, label: 'Server Actions', adminOnly: true },
-            { id: 'files' as const, icon: Upload, label: 'Files', adminOnly: true },
             { id: 'config' as const, icon: Settings, label: 'Server Config', adminOnly: true },
           ].filter(item => isAdmin || !item.adminOnly).map(item => (
             <button
@@ -1055,48 +913,29 @@ export function AdminPanel() {
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                 <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <Users className="h-5 w-5 text-purple-400" /> Group Management
+                  <Crown className="h-5 w-5 text-amber-400" /> Administrators ({users.filter(u => u.role === 'admin').length})
                 </h4>
-                {chats.filter(c => c.type === 'group').length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-8">No groups found</p>
+                {users.filter(u => u.role === 'admin').length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-8">No administrators</p>
                 ) : (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {chats.filter(c => c.type === 'group').map(group => (
-                      <div key={group.id} className="flex items-center justify-between rounded-lg bg-purple-500/5 border border-purple-500/10 p-3">
+                    {users.filter(u => u.role === 'admin').map(u => (
+                      <div key={u.id} className="flex items-center justify-between rounded-lg bg-amber-500/5 border border-amber-500/10 p-3">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/20 text-sm font-bold text-purple-400">
-                            {group.name[0].toUpperCase()}
+                          <div className="relative">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/20 text-sm font-bold text-amber-400">
+                              {u.username[0].toUpperCase()}
+                            </div>
+                            {u.online && (
+                              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-gray-900 bg-green-500" />
+                            )}
                           </div>
                           <div>
-                            <span className="text-sm font-medium text-white">{group.name}</span>
-                            <p className="text-xs text-gray-500">
-                              {group.participants?.length || 0} members • Created {group.createdAt ? new Date(group.createdAt).toLocaleDateString() : 'Unknown'}
-                            </p>
+                            <span className="text-sm font-medium text-white">{u.username}</span>
+                            {u.id === currentUser.id && (
+                              <span className="ml-2 text-xs text-indigo-400">(you)</span>
+                            )}
                           </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              // View group details (could open a modal or navigate)
-                              addNotification(`Viewing group: ${group.name}`, 'info');
-                            }}
-                            className="rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 transition hover:bg-blue-500/20"
-                            title="View group details"
-                          >
-                            <Eye className="h-3 w-3" />
-                          </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => {
-                                // Delete group (would need server endpoint)
-                                addNotification(`Group deletion not implemented yet: ${group.name}`, 'warning');
-                              }}
-                              className="rounded-lg bg-red-500/10 px-3 py-1.5 text-xs text-red-400 transition hover:bg-red-500/20"
-                              title="Delete group"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -1110,53 +949,19 @@ export function AdminPanel() {
                 </h4>
                 <div className="space-y-2">
                   {isAdmin && (
-                    <>
-                      <button
-                        onClick={() => performSystemAction('Kick All Users', '/api/admin/kick-all')}
-                        disabled={performingAction === 'Kick All Users'}
-                        className="flex w-full items-center gap-3 rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-left transition hover:bg-red-500/20 disabled:opacity-50"
-                      >
-                        {performingAction === 'Kick All Users' ? (
-                          <RefreshCw className="h-5 w-5 animate-spin text-red-400" />
-                        ) : (
-                          <LogOut className="h-5 w-5 text-red-400" />
-                        )}
-                        <div>
-                          <p className="text-sm font-medium text-white">Kick All Users</p>
-                          <p className="text-xs text-gray-500">Disconnect all online users</p>
-                        </div>
-                      </button>
-                      
-                      <button
-                        onClick={() => performSystemAction('Delete All Messages', '/api/admin/messages', 'DELETE')}
-                        disabled={performingAction === 'Delete All Messages'}
-                        className="flex w-full items-center gap-3 rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-left transition hover:bg-red-500/20 disabled:opacity-50"
-                      >
-                        {performingAction === 'Delete All Messages' ? (
-                          <RefreshCw className="h-5 w-5 animate-spin text-red-400" />
-                        ) : (
-                          <Trash2 className="h-5 w-5 text-red-400" />
-                        )}
-                        <div>
-                          <p className="text-sm font-medium text-white">Delete All Messages</p>
-                          <p className="text-xs text-gray-500">Permanently delete all messages</p>
-                        </div>
-                      </button>
-                      
-                      <button
-                        onClick={() => {
-                          users.filter(u => !u.emailVerified && u.id !== currentUser.id && u.role !== 'admin' && u.role !== 'moderator').forEach(u => banUser(u.id));
-                          addNotification('Banned all unverified users', 'success');
-                        }}
-                        className="flex w-full items-center gap-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-left transition hover:bg-amber-500/20"
-                      >
-                        <UserX className="h-5 w-5 text-amber-400" />
-                        <div>
-                          <p className="text-sm font-medium text-white">Ban Unverified Users</p>
-                          <p className="text-xs text-gray-500">Ban all users without verified email</p>
-                        </div>
-                      </button>
-                    </>
+                    <button
+                      onClick={() => {
+                        users.filter(u => !u.emailVerified && u.id !== currentUser.id && u.role !== 'admin' && u.role !== 'moderator').forEach(u => banUser(u.id));
+                        addNotification('Banned all unverified users', 'success');
+                      }}
+                      className="flex w-full items-center gap-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-left transition hover:bg-amber-500/20"
+                    >
+                      <UserX className="h-5 w-5 text-amber-400" />
+                      <div>
+                        <p className="text-sm font-medium text-white">Ban Unverified Users</p>
+                        <p className="text-xs text-gray-500">Ban all users without verified email</p>
+                      </div>
+                    </button>
                   )}
                   <button
                     onClick={() => {
@@ -1877,799 +1682,6 @@ export function AdminPanel() {
                   </p>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {tab === 'system' && isAdmin && (
-          <div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              {/* System Health */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-semibold text-white flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-green-400" /> System Health
-                  </h4>
-                  <button
-                    onClick={fetchSystemHealth}
-                    disabled={loadingSystem}
-                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${loadingSystem ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </button>
-                </div>
-                
-                {loadingSystem ? (
-                  <div className="text-center py-8">
-                    <RefreshCw className="h-8 w-8 animate-spin text-indigo-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">Loading system health...</p>
-                  </div>
-                ) : systemHealth ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Uptime</p>
-                        <p className="text-sm text-white font-medium">
-                          {Math.floor(systemHealth.uptime / 3600)}h {Math.floor((systemHealth.uptime % 3600) / 60)}m
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Platform</p>
-                        <p className="text-sm text-white font-medium">{systemHealth.system.platform}</p>
-                      </div>
-                      <div className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Memory Used</p>
-                        <p className="text-sm text-white font-medium">
-                          {(systemHealth.memory.used / 1024 / 1024).toFixed(1)} MB
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Database Size</p>
-                        <p className="text-sm text-white font-medium">
-                          {(systemHealth.database.size / 1024 / 1024).toFixed(1)} MB
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="rounded-xl bg-white/5 p-4">
-                      <h5 className="text-sm font-medium text-white mb-2">System Resources</h5>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">CPU Cores:</span>
-                          <span className="text-white">{systemHealth.system.cpus}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Total Memory:</span>
-                          <span className="text-white">{(systemHealth.system.totalMemory / 1024 / 1024 / 1024).toFixed(1)} GB</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Free Memory:</span>
-                          <span className="text-white">{(systemHealth.system.freeMemory / 1024 / 1024 / 1024).toFixed(1)} GB</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Load Average:</span>
-                          <span className="text-white">{systemHealth.system.loadAverage.map((l: number) => l.toFixed(2)).join(', ')}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-amber-400" />
-                    <p>Unable to load system health data</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Message Statistics */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-semibold text-white flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5 text-blue-400" /> Message Statistics
-                  </h4>
-                  <button
-                    onClick={fetchMessageStats}
-                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-gray-400 transition hover:bg-white/10 hover:text-white"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Refresh
-                  </button>
-                </div>
-                
-                {messageStats ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Total Messages</p>
-                        <p className="text-lg text-white font-bold">{messageStats.totalMessages.toLocaleString()}</p>
-                      </div>
-                      <div className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Active Users</p>
-                        <p className="text-lg text-white font-bold">{messageStats.topUsers?.length || 0}</p>
-                      </div>
-                    </div>
-                    
-                    {messageStats.messagesByType && messageStats.messagesByType.length > 0 && (
-                      <div className="rounded-xl bg-white/5 p-4">
-                        <h5 className="text-sm font-medium text-white mb-2">Messages by Type</h5>
-                        <div className="space-y-2">
-                          {messageStats.messagesByType.map((type: any) => (
-                            <div key={type.type} className="flex justify-between text-sm">
-                              <span className="text-gray-400 capitalize">{type.type || 'text'}</span>
-                              <span className="text-white font-medium">{type.count.toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {messageStats.topUsers && messageStats.topUsers.length > 0 && (
-                      <div className="rounded-xl bg-white/5 p-4">
-                        <h5 className="text-sm font-medium text-white mb-2">Top Contributors</h5>
-                        <div className="space-y-2">
-                          {messageStats.topUsers.slice(0, 5).map((user: any, index: number) => (
-                            <div key={user.username} className="flex justify-between items-center text-sm">
-                              <div className="flex items-center gap-2">
-                                <span className="text-gray-500 w-4">#{index + 1}</span>
-                                <span className="text-white">{user.username}</span>
-                              </div>
-                              <span className="text-indigo-400 font-medium">{user.messageCount}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <MessageSquare className="h-8 w-8 mx-auto mb-2 text-blue-400" />
-                    <p>Loading message statistics...</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              {/* Database Management */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <Database className="h-5 w-5 text-indigo-400" /> Database Management
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => performSystemAction('Database Backup', '/api/admin/database/backup')}
-                    disabled={performingAction === 'Database Backup'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-green-500/10 border border-green-500/20 p-3 text-left transition hover:bg-green-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Database Backup' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-green-400" />
-                    ) : (
-                      <Database className="h-5 w-5 text-green-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Create Database Backup</p>
-                      <p className="text-xs text-gray-500">Download a full database backup file</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      window.open(`${serverUrl.replace(/\/$/, '')}/api/admin/database/export`, '_blank');
-                      addNotification('Database export started', 'success');
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-blue-500/10 border border-blue-500/20 p-3 text-left transition hover:bg-blue-500/20"
-                  >
-                    <Download className="h-5 w-5 text-blue-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Export Data (JSON)</p>
-                      <p className="text-xs text-gray-500">Export users, chats, and recent messages</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* File Management */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-semibold text-white flex items-center gap-2">
-                    <HardDrive className="h-5 w-5 text-purple-400" /> File Management
-                  </h4>
-                  <button
-                    onClick={fetchUploadedFiles}
-                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-gray-400 transition hover:bg-white/10 hover:text-white"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Refresh
-                  </button>
-                </div>
-                
-                <div className="space-y-3">
-                  {uploadedFiles.length > 0 ? (
-                    <div className="max-h-48 overflow-y-auto space-y-2">
-                      {uploadedFiles.slice(0, 10).map((file: any) => (
-                        <div key={file.name} className="flex items-center justify-between rounded-lg bg-white/5 p-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white truncate">{file.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {(file.size / 1024).toFixed(1)} KB • {new Date(file.modified).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => performSystemAction(`Delete ${file.name}`, `/api/admin/files/${encodeURIComponent(file.name)}`, 'DELETE')}
-                            disabled={performingAction === `Delete ${file.name}`}
-                            className="text-red-400 hover:text-red-300 p-1"
-                            title="Delete file"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {uploadedFiles.length > 10 && (
-                        <p className="text-xs text-gray-500 text-center py-2">
-                          And {uploadedFiles.length - 10} more files...
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <HardDrive className="h-8 w-8 mx-auto mb-2 text-purple-400" />
-                      <p>No uploaded files</p>
-                    </div>
-                  )}
-                  
-                  <div className="pt-2 border-t border-white/10">
-                    <p className="text-xs text-gray-500 mb-2">
-                      Total storage used: {(uploadedFiles.reduce((sum: number, f: any) => sum + f.size, 0) / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Server Actions */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <Server className="h-5 w-5 text-amber-400" /> Server Actions
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => performSystemAction('Server Restart', '/api/admin/server/restart')}
-                    disabled={performingAction === 'Server Restart'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-left transition hover:bg-amber-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Server Restart' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-amber-400" />
-                    ) : (
-                      <Server className="h-5 w-5 text-amber-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Restart Server</p>
-                      <p className="text-xs text-gray-500">Disconnect all users and restart</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => performSystemAction('Clear Cache', '/api/admin/cache/clear')}
-                    disabled={performingAction === 'Clear Cache'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 p-3 text-left transition hover:bg-indigo-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Clear Cache' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-indigo-400" />
-                    ) : (
-                      <Zap className="h-5 w-5 text-indigo-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Clear Cache</p>
-                      <p className="text-xs text-gray-500">Clear any cached data</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Security Management */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-green-400" /> Security Management
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => setShowPasswordField(!showPasswordField)}
-                    className="flex w-full items-center gap-3 rounded-xl bg-green-500/10 border border-green-500/20 p-3 text-left transition hover:bg-green-500/20"
-                  >
-                    <Key className="h-5 w-5 text-green-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Change Admin Password</p>
-                      <p className="text-xs text-gray-500">Update your admin password</p>
-                    </div>
-                  </button>
-                  
-                  {showPasswordField && (
-                    <div className="space-y-2 p-3 bg-white/5 rounded-lg">
-                      <input
-                        type="password"
-                        placeholder="New password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm text-white placeholder-gray-400 focus:border-indigo-500 focus:outline-none"
-                      />
-                      <input
-                        type="password"
-                        placeholder="Confirm password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm text-white placeholder-gray-400 focus:border-indigo-500 focus:outline-none"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={async () => {
-                            if (!newPassword.trim()) {
-                              addNotification('Password cannot be empty', 'error');
-                              return;
-                            }
-                            if (newPassword !== confirmPassword) {
-                              addNotification('Passwords do not match', 'error');
-                              return;
-                            }
-                            if (newPassword.length < 8) {
-                              addNotification('Password must be at least 8 characters', 'error');
-                              return;
-                            }
-                            try {
-                              const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/password`, {
-                                method: 'POST',
-                                headers: { 
-                                  'Content-Type': 'application/json',
-                                  'Authorization': `Bearer ${authToken}` 
-                                },
-                                body: JSON.stringify({ newPassword }),
-                              });
-                              if (response.ok) {
-                                addNotification('Password changed successfully', 'success');
-                                setNewPassword('');
-                                setConfirmPassword('');
-                                setShowPasswordField(false);
-                              } else {
-                                const data = await response.json();
-                                addNotification(data.error || 'Failed to change password', 'error');
-                              }
-                            } catch {
-                              addNotification('Failed to change password', 'error');
-                            }
-                          }}
-                          className="flex-1 rounded-lg bg-indigo-500/20 px-3 py-1.5 text-xs text-indigo-400 transition hover:bg-indigo-500/30"
-                        >
-                          Change
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowPasswordField(false);
-                            setNewPassword('');
-                            setConfirmPassword('');
-                          }}
-                          className="rounded-lg bg-gray-500/20 px-3 py-1.5 text-xs text-gray-400 transition hover:bg-gray-500/30"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <button
-                    onClick={async () => {
-                      if (confirm('This will invalidate all current user sessions. Are you sure?')) {
-                        try {
-                          const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/admin/jwt/regenerate`, {
-                            method: 'POST',
-                            headers: { 
-                              'Content-Type': 'application/json',
-                              'Authorization': `Bearer ${authToken}` 
-                            },
-                          });
-                          if (response.ok) {
-                            addNotification('JWT secret regenerated. All users will need to log in again.', 'success');
-                          } else {
-                            const data = await response.json();
-                            addNotification(data.error || 'Failed to regenerate JWT secret', 'error');
-                          }
-                        } catch {
-                          addNotification('Failed to regenerate JWT secret', 'error');
-                        }
-                      }
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-blue-500/10 border border-blue-500/20 p-3 text-left transition hover:bg-blue-500/20"
-                  >
-                    <Lock className="h-5 w-5 text-blue-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Regenerate JWT Secret</p>
-                      <p className="text-xs text-gray-500">Invalidate all current sessions</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      // View security logs
-                      addNotification('Security logs not implemented yet', 'warning');
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-purple-500/10 border border-purple-500/20 p-3 text-left transition hover:bg-purple-500/20"
-                  >
-                    <Eye className="h-5 w-5 text-purple-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">View Security Logs</p>
-                      <p className="text-xs text-gray-500">Check login attempts and security events</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Log Management */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-red-400" /> Log Management
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => performSystemAction('Clear Logs', '/api/admin/logs/clear')}
-                    disabled={performingAction === 'Clear Logs'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-left transition hover:bg-red-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Clear Logs' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-red-400" />
-                    ) : (
-                      <Trash2 className="h-5 w-5 text-red-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Clear System Logs</p>
-                      <p className="text-xs text-gray-500">Delete all log entries</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      const logData = logs.map(log => 
-                        `[${new Date(log.timestamp).toISOString()}] ${log.type.toUpperCase()}: ${log.action} ${log.user ? `(@${log.user})` : ''} ${log.details || ''}`
-                      ).join('\n');
-                      const blob = new Blob([logData], { type: 'text/plain' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `4messenger-logs-${new Date().toISOString().split('T')[0]}.txt`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                      addNotification('Logs exported', 'success');
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-gray-500/10 border border-gray-500/20 p-3 text-left transition hover:bg-gray-500/20"
-                  >
-                    <Download className="h-5 w-5 text-gray-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Export Logs</p>
-                      <p className="text-xs text-gray-500">Download current logs</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Message Management */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5 text-orange-400" /> Message Management
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => {
-                      const days = prompt('Delete messages older than how many days? (leave empty to cancel)');
-                      if (days && parseInt(days) > 0) {
-                        const beforeDate = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000).toISOString();
-                        performSystemAction('Delete Old Messages', '/api/admin/messages', 'DELETE', { beforeDate });
-                      }
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-orange-500/10 border border-orange-500/20 p-3 text-left transition hover:bg-orange-500/20"
-                  >
-                    <Clock className="h-5 w-5 text-orange-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Delete Old Messages</p>
-                      <p className="text-xs text-gray-500">Remove messages older than X days</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      const userId = prompt('Enter user ID to delete all their messages (leave empty to cancel):');
-                      if (userId?.trim()) {
-                        performSystemAction('Delete User Messages', '/api/admin/messages', 'DELETE', { userId: userId.trim() });
-                      }
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-left transition hover:bg-red-500/20"
-                  >
-                    <UserX className="h-5 w-5 text-red-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Delete User Messages</p>
-                      <p className="text-xs text-gray-500">Remove all messages from a user</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === 'messages' && isAdmin && (
-          <div>
-            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 mb-4">
-              <div className="relative flex-1 min-w-0 sm:min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-                <input
-                  type="text"
-                  value={messageSearch}
-                  onChange={e => setMessageSearch(e.target.value)}
-                  placeholder="Search messages..."
-                  className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                />
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={fetchAllMessages}
-                  disabled={loadingMessages}
-                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-4 w-4 ${loadingMessages ? 'animate-spin' : ''}`} />
-                  Refresh
-                </button>
-              </div>
-            </div>
-
-            {/* Bulk Actions for Messages */}
-            {selectedMessages.length > 0 && (
-              <div className="mb-4 flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
-                <span className="text-sm text-red-400">{selectedMessages.length} selected</span>
-                <div className="flex-1" />
-                <button
-                  onClick={() => {
-                    if (confirm('Are you sure you want to delete the selected messages?')) {
-                      performSystemAction('Delete Selected Messages', '/api/admin/messages', 'DELETE', { messageIds: selectedMessages });
-                      setSelectedMessages([]);
-                    }
-                  }}
-                  disabled={performingAction === 'Delete Selected Messages'}
-                  className="flex items-center gap-2 rounded-lg bg-red-500/20 px-3 py-1.5 text-sm text-red-400 transition hover:bg-red-500/30 disabled:opacity-50"
-                >
-                  {performingAction === 'Delete Selected Messages' ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                  Delete Selected
-                </button>
-              </div>
-            )}
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-              {loadingMessages ? (
-                <div className="text-center py-12">
-                  <RefreshCw className="h-8 w-8 animate-spin text-indigo-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">Loading messages...</p>
-                </div>
-              ) : allMessages.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <MessageSquare className="h-8 w-8 mx-auto mb-2 text-blue-400" />
-                  <p>No messages found</p>
-                </div>
-              ) : (
-                <div className="max-h-96 overflow-y-auto">
-                  {allMessages
-                    .filter(msg => 
-                      messageSearch === '' || 
-                      msg.content?.toLowerCase().includes(messageSearch.toLowerCase()) ||
-                      msg.username?.toLowerCase().includes(messageSearch.toLowerCase()) ||
-                      msg.chatName?.toLowerCase().includes(messageSearch.toLowerCase())
-                    )
-                    .map((msg: any) => (
-                      <div key={msg.id} className="flex items-start gap-3 p-4 border-b border-white/5 hover:bg-white/5 transition">
-                        <input
-                          type="checkbox"
-                          checked={selectedMessages.includes(msg.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedMessages(prev => [...prev, msg.id]);
-                            } else {
-                              setSelectedMessages(prev => prev.filter(id => id !== msg.id));
-                            }
-                          }}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium text-white">{msg.username || 'Unknown'}</span>
-                            <span className="text-xs text-gray-500">in {msg.chatName || 'Unknown Chat'}</span>
-                            <span className="text-xs text-gray-500">{new Date(msg.timestamp).toLocaleString()}</span>
-                          </div>
-                          <p className="text-sm text-gray-300 break-words">{msg.content || '[Media/File]'}</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (confirm('Are you sure you want to delete this message?')) {
-                              performSystemAction(`Delete Message ${msg.id}`, `/api/admin/messages`, 'DELETE', { messageIds: [msg.id] });
-                            }
-                          }}
-                          disabled={performingAction === `Delete Message ${msg.id}`}
-                          className="text-red-400 hover:text-red-300 p-1"
-                          title="Delete message"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {tab === 'server' && isAdmin && (
-          <div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Server Control */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <Server className="h-5 w-5 text-amber-400" /> Server Control
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => performSystemAction('Server Restart', '/api/admin/server/restart')}
-                    disabled={performingAction === 'Server Restart'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-left transition hover:bg-amber-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Server Restart' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-amber-400" />
-                    ) : (
-                      <Server className="h-5 w-5 text-amber-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Restart Server</p>
-                      <p className="text-xs text-gray-500">Disconnect all users and restart the server</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => performSystemAction('Clear Cache', '/api/admin/cache/clear')}
-                    disabled={performingAction === 'Clear Cache'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 p-3 text-left transition hover:bg-indigo-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Clear Cache' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-indigo-400" />
-                    ) : (
-                      <Zap className="h-5 w-5 text-indigo-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Clear Cache</p>
-                      <p className="text-xs text-gray-500">Clear any cached data and restart cache</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Database Management */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                  <Database className="h-5 w-5 text-indigo-400" /> Database Management
-                </h4>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => performSystemAction('Database Backup', '/api/admin/database/backup')}
-                    disabled={performingAction === 'Database Backup'}
-                    className="flex w-full items-center gap-3 rounded-xl bg-green-500/10 border border-green-500/20 p-3 text-left transition hover:bg-green-500/20 disabled:opacity-50"
-                  >
-                    {performingAction === 'Database Backup' ? (
-                      <RefreshCw className="h-5 w-5 animate-spin text-green-400" />
-                    ) : (
-                      <Database className="h-5 w-5 text-green-400" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">Create Database Backup</p>
-                      <p className="text-xs text-gray-500">Download a full database backup file</p>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      window.open(`${serverUrl.replace(/\/$/, '')}/api/admin/database/export`, '_blank');
-                      addNotification('Database export started', 'success');
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-blue-500/10 border border-blue-500/20 p-3 text-left transition hover:bg-blue-500/20"
-                  >
-                    <Download className="h-5 w-5 text-blue-400" />
-                    <div>
-                      <p className="text-sm font-medium text-white">Export Data (JSON)</p>
-                      <p className="text-xs text-gray-500">Export users, chats, and recent messages</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === 'files' && isAdmin && (
-          <div>
-            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 mb-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={fetchUploadedFiles}
-                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-400 transition hover:bg-white/10 hover:text-white"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Refresh Files
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                <Upload className="h-5 w-5 text-purple-400" /> Uploaded Files
-              </h4>
-              
-              {uploadedFiles.length > 0 ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {uploadedFiles.map((file: any) => (
-                      <div key={file.name} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate" title={file.name}>{file.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {(file.size / 1024).toFixed(1)} KB • {new Date(file.modified).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => performSystemAction(`Delete ${file.name}`, `/api/admin/files/${encodeURIComponent(file.name)}`, 'DELETE')}
-                            disabled={performingAction === `Delete ${file.name}`}
-                            className="text-red-400 hover:text-red-300 p-1 ml-2"
-                            title="Delete file"
-                          >
-                            {performingAction === `Delete ${file.name}` ? (
-                              <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </button>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => window.open(`${serverUrl.replace(/\/$/, '')}/uploads/${encodeURIComponent(file.name)}`, '_blank')}
-                            className="flex-1 text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-500/30 transition"
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() => {
-                              const link = document.createElement('a');
-                              link.href = `${serverUrl.replace(/\/$/, '')}/uploads/${encodeURIComponent(file.name)}`;
-                              link.download = file.name;
-                              link.click();
-                            }}
-                            className="flex-1 text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded hover:bg-green-500/30 transition"
-                          >
-                            Download
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <div className="pt-4 border-t border-white/10">
-                    <p className="text-sm text-gray-400">
-                      Total storage used: {(uploadedFiles.reduce((sum: number, f: any) => sum + f.size, 0) / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <Upload className="h-8 w-8 mx-auto mb-2 text-purple-400" />
-                  <p>No uploaded files found</p>
-                </div>
-              )}
             </div>
           </div>
         )}
