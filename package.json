@@ -43,7 +43,6 @@
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.4.2",
-    "@rollup/rollup-android-arm64": "^4.59.0",
     "clsx": "2.1.1",
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
