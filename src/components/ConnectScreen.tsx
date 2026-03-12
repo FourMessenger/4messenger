@@ -208,7 +208,7 @@ export function ConnectScreen() {
                   {shortcut.id !== 'official-4messenger' && (
                     <button
                       onClick={(e) => handleRemoveShortcut(e, shortcut.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition"
+                      className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition"
                       title="Remove shortcut"
                     >
                       <X className="h-4 w-4" />
