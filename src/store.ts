@@ -309,7 +309,7 @@ interface AppState {
   removeNotification: (id: string) => void;
   markAsRead: (chatId: string) => void;
   encryptMessage: (text: string) => string;
-  decryptMessage: (text: string) => string;
+  decryptMessage: (text: string, chatId: string) => Promise<string>;
   fetchUsers: () => Promise<void>;
   fetchChats: () => Promise<void>;
   fetchMessages: (chatId: string) => Promise<void>;
@@ -1156,7 +1156,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   fetchMessages: async (chatId) => {
-    const { serverUrl, authToken, chatKeys } = get();
+    const { serverUrl, authToken } = get();
     if (!authToken) return;
     
     try {
@@ -1176,11 +1176,13 @@ export const useStore = create<AppState>((set, get) => ({
         
         for (const m of chatMessages) {
           let content = m.content;
-          if (content && content.startsWith('e2ee:')) {
-            if (chatKeys[chatId]) {
-              content = await E2EE.decryptMessage(content, chatKeys[chatId]);
-            } else {
-              content = '[Encrypted Message]';
+          // Decrypt if message is encrypted and E2EE is unlocked
+          if (content && content.startsWith('e2ee:') && E2EE.isE2EEUnlocked()) {
+            try {
+              content = await E2EE.decryptMessage(content, chatId);
+            } catch (e) {
+              console.error('[Store] Failed to decrypt message:', e);
+              content = '[Decryption failed]';
             }
           }
           
@@ -1242,7 +1244,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   sendMessage: async (chatId, content, type = 'text', fileName, fileSize, fileUrl?: string) => {
-    const { currentUser, serverUrl, authToken, users, chats, chatKeys, e2eeKeyPair } = get();
+    const { currentUser, serverUrl, authToken, users, chats } = get();
     if (!currentUser || !authToken) return;
 
     // Create local message for immediate display (unencrypted for UI)
@@ -1277,57 +1279,25 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     let payloadContent = content;
+    let isEncrypted = false;
     
     // Determine if we should E2EE this message
     const chat = chats.find(c => c.id === chatId);
-    if (chat && type === 'text') {
+    if (chat && type === 'text' && E2EE.isE2EEUnlocked()) {
       const hasBot = chat.participants.some(uid => {
         const u = users.find(user => user.id === uid);
         return u?.isBot;
       });
       
-      if (!hasBot && chatKeys[chatId]) {
-        // E2EE active
-        payloadContent = await E2EE.encryptMessage(content, chatKeys[chatId]);
-      } else if (!hasBot && !chatKeys[chatId] && e2eeKeyPair) {
-        // Try to generate key on the fly if missing but all users have public keys
-        let canCreateKey = true;
-        for (const pId of chat.participants) {
-          const u = users.find(user => user.id === pId);
-          if (!u?.publicKey && pId !== currentUser.id) {
-            canCreateKey = false;
-            break;
-          }
-        }
-        
-        if (canCreateKey) {
-          try {
-            const chatKey = await E2EE.generateChatKey();
-            const encryptedKeys: Record<string, string> = {};
-            for (const pId of chat.participants) {
-              const u = users.find(user => user.id === pId) || (pId === currentUser.id ? currentUser : null);
-              if (u?.publicKey) {
-                const wrapped = await E2EE.wrapKey(chatKey, u.publicKey);
-                if (wrapped) encryptedKeys[pId] = wrapped;
-              }
-            }
-            
-            // Send keys to server
-            await fetch(`${serverUrl.replace(/\/$/, '')}/api/chats/${chatId}/keys`, {
-              method: 'PUT',
-              headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`,
-              },
-              body: JSON.stringify({ encryptedKeys }),
-            });
-            
-            set(state => ({ chatKeys: { ...state.chatKeys, [chatId]: chatKey } }));
-            E2EE.saveChatKey(chatId, chatKey).catch(() => {});
-            payloadContent = await E2EE.encryptMessage(content, chatKey);
-          } catch(e) {
-            console.error("Error setting up chat key:", e);
-          }
+      // Encrypt if no bots in the chat
+      if (!hasBot) {
+        try {
+          // Use the new simplified API - just pass chatId
+          payloadContent = await E2EE.encryptMessage(content, chatId);
+          isEncrypted = payloadContent.startsWith('e2ee:');
+        } catch (e) {
+          console.error('[Store] Encryption failed, will send unencrypted:', e);
+          // Fall through to send unencrypted
         }
       }
     }
@@ -1340,11 +1310,18 @@ export const useStore = create<AppState>((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ content: payloadContent, type, fileName, fileSize, fileUrl }),
+        body: JSON.stringify({ 
+          content: payloadContent, 
+          type, 
+          fileName, 
+          fileSize, 
+          fileUrl,
+          encrypted: isEncrypted,
+        }),
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         get().addNotification(errorData.error || 'Failed to send message', 'error');
         set(state => ({
           messages: state.messages.filter(m => m.id !== localMessage.id),
@@ -1355,7 +1332,7 @@ export const useStore = create<AppState>((set, get) => ({
         }));
       }
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('[Store] Failed to send message:', error);
       get().addNotification('Failed to send message', 'error');
       set(state => ({
         messages: state.messages.filter(m => m.id !== localMessage.id),
@@ -2009,7 +1986,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   encryptMessage: (text) => text, // Server handles encryption
-  decryptMessage: (text) => text, // Server handles decryption
+  decryptMessage: async (text, chatId) => {
+    // Decryption is handled when messages are fetched
+    // This is kept for backward compatibility
+    return text;
+  },
 
   setAppearance: (settings) => {
     set(state => {

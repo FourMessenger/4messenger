@@ -672,9 +672,7 @@ export function ChatScreen() {
   };
 
   const getMessageContent = (m: Message) => {
-    if (m.encrypted) {
-      return decryptMessage(m.content);
-    }
+    // Messages are already decrypted when fetched, just return the content
     return m.content;
   };
 
