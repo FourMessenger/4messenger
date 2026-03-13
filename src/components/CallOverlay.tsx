@@ -515,7 +515,7 @@ export function CallOverlay() {
           </div>
           
           <h2 className="text-3xl font-bold text-white mb-2">
-            {caller?.displayName || caller?.username || 'Unknown'}
+            {caller?.displayName || caller?.username || `Caller (${caller?.id?.slice(0,8)})`}
           </h2>
           <p className="text-gray-400 text-lg mb-10">
             Incoming {incomingCall.type === 'video' ? 'video' : 'voice'} call...
@@ -579,7 +579,7 @@ export function CallOverlay() {
             </div>
             
             <h2 className="mt-8 text-3xl font-bold text-white">
-              {otherUser?.displayName || otherUser?.username || 'Unknown'}
+              {otherUser?.displayName || otherUser?.username || `User (${otherUser?.id?.slice(0,8)})`}
             </h2>
             <p className="mt-3 text-xl text-gray-400">
               {callStatus === 'connecting' && (

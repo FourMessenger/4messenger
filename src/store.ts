@@ -695,6 +695,11 @@ export const useStore = create<AppState>((set, get) => ({
 
                 const existsInMessages = state.messages.some(m => m.id === mappedMsg.id);
                 const existsInAll = (state.allMessages[chatId] || []).some(m => m.id === mappedMsg.id);
+                
+                // If sender is not in users list, fetch updated user data
+                if (!isOwnMessage && !state.users.find(u => u.id === senderId)) {
+                  get().fetchUsers();
+                }
 
                 if (!existsInMessages && !existsInAll) {
                   if (!isOwnMessage) {
@@ -780,12 +785,12 @@ export const useStore = create<AppState>((set, get) => ({
             }
             case 'user_online':
               set(state => ({
-                users: state.users.map(u => u.id === msg.userId ? { ...u, online: true } : u),
+                users: state.users.map(u => u.id === (msg.userId || msg.user_id) ? { ...u, online: true } : u),
               }));
               break;
             case 'user_offline':
               set(state => ({
-                users: state.users.map(u => u.id === msg.userId ? { ...u, online: false, lastSeen: Date.now() } : u),
+                users: state.users.map(u => u.id === (msg.userId || msg.user_id) ? { ...u, online: false, lastSeen: Date.now() } : u),
               }));
               break;
             case 'chat_updated':
@@ -1048,11 +1053,11 @@ export const useStore = create<AppState>((set, get) => ({
         // Map server response format to client format
         const mappedUsers = usersData.map((u: Record<string, unknown>) => ({
           id: u.id,
-          username: u.username,
+          username: u.username || 'Unknown',  // Ensure username always has a value
           email: u.email,
           role: u.role || 'user',
-          avatar: u.avatar,
-          displayName: u.display_name || u.displayName,
+          avatar: u.avatar || undefined,  // Ensure avatar is undefined if not present
+          displayName: u.display_name || u.displayName || (u.username || 'Unknown'),  // Fallback chain for display name
           publicKey: u.public_key || u.publicKey,
           online: !!u.online,
           lastSeen: u.last_seen || u.lastSeen,
@@ -1167,6 +1172,8 @@ export const useStore = create<AppState>((set, get) => ({
         
         // Decrypt messages sequentially to ensure order and avoid blocking
         const mappedMessages: Message[] = [];
+        const unknownSenderIds = new Set<string>();
+        
         for (const m of chatMessages) {
           let content = m.content;
           if (content && content.startsWith('e2ee:')) {
@@ -1177,10 +1184,11 @@ export const useStore = create<AppState>((set, get) => ({
             }
           }
           
+          const senderId = m.sender_id || m.senderId;
           mappedMessages.push({
             id: m.id,
             chatId: m.chat_id || m.chatId || chatId,
-            senderId: m.sender_id || m.senderId,
+            senderId: senderId,
             content: content,
             type: m.type || 'text',
             fileName: m.file_name || m.fileName,
@@ -1192,6 +1200,12 @@ export const useStore = create<AppState>((set, get) => ({
             timestamp: m.created_at || m.timestamp || Date.now(),
             readBy: m.readBy || [],
           });
+          
+          // Track senders that might not be in the users list
+          const currentUsers = get().users;
+          if (!currentUsers.find(u => u.id === senderId)) {
+            unknownSenderIds.add(senderId);
+          }
         }
         
         set(state => ({
@@ -1201,6 +1215,11 @@ export const useStore = create<AppState>((set, get) => ({
           },
           messages: mappedMessages,
         }));
+        
+        // If there are unknown senders, fetch updated user list
+        if (unknownSenderIds.size > 0) {
+          get().fetchUsers();
+        }
       }
     } catch (error) {
       console.error('Failed to fetch messages:', error);
@@ -1215,6 +1234,8 @@ export const useStore = create<AppState>((set, get) => ({
       // Then fetch latest from server in background
       get().fetchMessages(chatId);
       get().markAsRead(chatId);
+      // Ensure users are fetched so message senders are properly displayed
+      get().fetchUsers();
     } else {
       set({ activeChat: chatId, showChatInfo: false, messages: [] });
     }
@@ -1930,7 +1951,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const participantNames = chat.participants
       .filter(p => p !== currentUser.id)
-      .map(p => users.find(u => u.id === p)?.username || 'Unknown');
+      .map(p => users.find(u => u.id === p)?.username || users.find(u => u.id === p)?.displayName || 'Unknown');
 
     get().beginCall(chatId, type, chat.participants);
     get().addNotification(`${type === 'video' ? 'Video' : 'Voice'} call with ${participantNames.join(', ')}`, 'info');
@@ -2378,12 +2399,12 @@ export const useStore = create<AppState>((set, get) => ({
             }
             case 'user_online':
               set(state => ({
-                users: state.users.map(u => u.id === msg.userId ? { ...u, online: true } : u),
+                users: state.users.map(u => u.id === (msg.userId || msg.user_id) ? { ...u, online: true } : u),
               }));
               break;
             case 'user_offline':
               set(state => ({
-                users: state.users.map(u => u.id === msg.userId ? { ...u, online: false, lastSeen: Date.now() } : u),
+                users: state.users.map(u => u.id === (msg.userId || msg.user_id) ? { ...u, online: false, lastSeen: Date.now() } : u),
               }));
               break;
             case 'chat_updated':

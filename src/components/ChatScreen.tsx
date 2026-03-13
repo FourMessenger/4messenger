@@ -263,7 +263,8 @@ export function ChatScreen() {
     if (avatar && (avatar.startsWith('http') || avatar.startsWith('data:') || avatar.startsWith('/'))) {
       return { type: 'image', value: avatar };
     }
-    return { type: 'letter', value: otherUser?.username?.[0]?.toUpperCase() || '?' };
+    const displayName = otherUser?.displayName || otherUser?.username || 'U';
+    return { type: 'letter', value: displayName?.[0]?.toUpperCase() || 'U' };
   };
 
   const getChatDisplayName = (c: Chat) => {
@@ -272,9 +273,10 @@ export function ChatScreen() {
       return c.name || (c.isChannel ? 'Channel' : 'Group');
     }
     // Direct chats show the other user's name
-      const otherId = c.participants.find(p => p !== currentUser.id);
-  const otherUser = users.find(u => u.id === otherId);
-  return (otherUser?.displayName || otherUser?.username || 'Unknown') + (otherUser?.isBot ? ' 🤖' : '');
+    const otherId = c.participants.find(p => p !== currentUser.id);
+    const otherUser = users.find(u => u.id === otherId);
+    const displayName = otherUser?.displayName || otherUser?.username || 'Unknown Chat';
+    return displayName + (otherUser?.isBot ? ' 🤖' : '');
   };
 
   const getUserAvatar = (userId: string) => {
@@ -284,11 +286,11 @@ export function ChatScreen() {
 
   const getUserDisplayName = (userId: string) => {
     const user = users.find(u => u.id === userId);
-    return user?.displayName || user?.username || 'Unknown';
+    return user?.displayName || user?.username || `User ${userId.slice(0,8)}`;
   };
 
   const getChatOnline = (c: Chat) => {
-    if (c.type === 'group') return false;
+    if (c.type === 'group' || c.type === 'channel' || c.isChannel) return false;
     const otherId = c.participants.find(p => p !== currentUser.id);
     return users.find(u => u.id === otherId)?.online || false;
   };
